@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "author": "IoT Engineer",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp32", "top": 67.2, "left": 43.24, "attrs": {} },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht22",
+      "top": -47.7,
+      "left": -111,
+      "attrs": { "humidity": "72", "temperature": "28.2" }
+    },
+    { "type": "wokwi-potentiometer", "id": "soil_pot", "top": 161.9, "left": -153.8, "attrs": {} },
+    { "type": "wokwi-relay-module", "id": "pump_relay", "top": 19.4, "left": 393.6, "attrs": {} },
+    { "type": "wokwi-servo", "id": "window_servo", "top": 103.6, "left": 201.6, "attrs": {} },
+    { "type": "wokwi-lcd1602", "id": "lcd1", "top": 208, "left": 236, "attrs": { "pins": "i2c" } }
+  ],
+  "connections": [
+    [ "dht22:SDA", "esp32:23", "green", [ "v-9.6", "h-47.9" ] ],
+    [ "soil_pot:SIG", "esp32:34", "green", [ "v-96", "h162.8" ] ],
+    [ "pump_relay:IN", "esp32:25", "green", [ "h-192", "v115" ] ],
+    [ "window_servo:V+", "esp32:5V", "green", [ "h-220.8", "v76.9", "h9.6", "v28.8", "h9.6" ] ],
+    [ "soil_pot:GND", "esp32:GND.1", "black", [ "v-9.6", "h172.8" ] ],
+    [ "window_servo:GND", "esp32:GND.1", "black", [ "h-192", "v67.2", "h28.8" ] ],
+    [ "pump_relay:GND", "esp32:GND.1", "black", [ "h-192", "v172.4" ] ],
+    [ "dht22:GND", "esp32:GND.1", "black", [ "v153.6", "h76.8" ] ],
+    [ "pump_relay:VCC", "esp32:5V", "red", [ "h-192", "v230.4" ] ],
+    [ "window_servo:PWM", "esp32:26", "green", [ "h-153.6", "v9.8" ] ],
+    [ "lcd1:GND", "esp32:GND.1", "black", [ "h-192", "v-19.2" ] ],
+    [ "lcd1:VCC", "esp32:5V", "red", [ "h-192", "v19.3" ] ],
+    [ "lcd1:SDA", "esp32:21", "green", [ "h-96", "v-115" ] ],
+    [ "lcd1:SCL", "esp32:22", "green", [ "h-96", "v-153.3" ] ],
+    [ "soil_pot:VCC", "esp32:3V3", "red", [ "v-134.4", "h152.8" ] ],
+    [ "dht22:VCC", "esp32:3V3", "red", [ "v28.8", "h144" ] ]
+  ],
+  "dependencies": {}
+}
