@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌱 Smart Greenhouse Automation Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/blockly/blockly.min.js"></script>
+    <script src="https://unpkg.com/blockly/javascript_compressed.js"></script>
+</head>
+<body>
+    <header>
+        <h1>🌱 FarmLogic IoT Orchestrator</h1>
+        <p>Day 2 Workspace: Drag and drop blocks below to build greenhouse rules.</p>
+    </header>
+
+    <main class="dashboard-container">
+        <section class="blockly-section">
+            <div id="blocklyDiv"></div>
+        </section>
+        
+        <section class="control-deck">
+            <h2>Live Logic Compilation</h2>
+            <button id="runCodeBtn" class="btn-primary">⚡ Execute Rules</button>
+            <pre id="codePreview">// JavaScript generated rules will appear here...</pre>
+        </section>
+    </main>
+
+    <xml id="toolbox" style="display: none">
+        <category name="🌾 Sensor Inputs" colour="#10b981">
+            <block type="get_temperature"></block>
+            <block type="get_humidity"></block>
+            <block type="get_soil_moisture"></block>
+        </category>
+        <category name="⚙️ Actuator Outputs" colour="#3b82f6">
+            <block type="set_pump"></block>
+            <block type="set_window"></block>
+        </category>
+        <category name="🧠 Logic Rules" colour="#f59e0b">
+            <block type="controls_if"></block>
+            <block type="logic_compare"></block>
+            <block type="math_number"></block>
+        </category>
+    </xml>
+
+    <script src="app.js"></script>
+</body>
+</html>
