@@ -37,3 +37,25 @@ greenhouse-engine/
 ├── styles.css        # Layout style architecture definitions 
 ├── sketch.ino        # Day 1 hardware validation and diagnostic ESP32 firmware
 └── diagram.json      # Wokwi Canvas virtual hardware layout configurations
+Day 2 introduced semantic translations, transforming raw programmatic data variables into highly readable blocks for farm management:
+
+### 🌾 Sensor Inputs (Green Category)
+* `🌡️ Current Temperature (°C)` $\rightarrow$ Compiles to: `greenhouseSensors.getTemperature()`
+* `💧 Current Air Humidity (%)` $\rightarrow$ Compiles to: `greenhouseSensors.getHumidity()`
+* `🌱 Current Soil Moisture (%)` $\rightarrow$ Compiles to: `greenhouseSensors.getSoilMoisture()`
+
+### ⚙️ Actuator Outputs (Blue Category)
+* `🌊 Turn Water Pump [ON / OFF]` $\rightarrow$ Compiles to: `greenhouseActuators.setPumpState("HIGH" / "LOW");`
+* `🪟 Set Ventilation Window to [0-90] Degrees` $\rightarrow$ Compiles to: `greenhouseActuators.setWindowAngle(value);`
+
+---
+
+## 📂 File Directory Matrix
+
+```text
+greenhouse-engine/
+├── index.html        # Main visual application layout & Blockly workspace injector
+├── app.js            # Unified custom block definitions, compilation triggers, & middleware
+├── styles.css        # Dashboard styling, side-by-side split grid container architecture
+├── sketch.ino        # Hardware validation and diagnostic ESP32 firmware
+└── diagram.json      # Wokwi Canvas virtual hardware layout configurations
