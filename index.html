@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Smart Greenhouse Rule Engine</title>
+
+  <title>🌱 FarmLogic Smart Greenhouse</title>
 
   <link rel="stylesheet" href="styles.css" />
 
@@ -12,48 +13,101 @@
 </head>
 
 <body>
-  <div class="leaf leaf-1">🍃</div>
-  <div class="leaf leaf-2">🌿</div>
-  <div class="leaf leaf-3">🍀</div>
+  <div class="floating-flower flower-one">🌸</div>
+  <div class="floating-flower flower-two">🌼</div>
+  <div class="floating-flower flower-three">🌺</div>
+  <div class="floating-flower flower-four">🍃</div>
 
-  <header>
+  <header class="hero">
     <h1>🌱 FarmLogic IoT Orchestrator</h1>
-    <p>Day 3–4: Blockly Code Generator + Continuous Rule Runtime Engine</p>
+    <p>No-Code Smart Greenhouse Automation System</p>
+    <span>Day 1–7 Complete: Blockly + Runtime + WebSocket + Safety + Animated Greenhouse</span>
   </header>
 
   <main class="dashboard-container">
-    <section class="blockly-section">
+    <section class="blockly-card">
+      <div class="card-title">
+        <h2>🧩 Farmer Rule Builder</h2>
+        <p>Drag blocks to create greenhouse automation rules.</p>
+      </div>
       <div id="blocklyDiv"></div>
     </section>
 
-    <section class="control-deck">
-      <h2>Greenhouse Runtime</h2>
+    <section class="runtime-card">
+      <h2>🌿 Greenhouse Runtime</h2>
 
-      <button id="runCodeBtn" class="btn-primary">🌾 Compile & Deploy Rules</button>
+      <div class="button-grid">
+        <button id="deployBtn" class="btn primary">🌾 Compile & Deploy Rules</button>
+        <button id="greenhouseBtn" class="btn secondary">🌼 View Animated Greenhouse</button>
+        <button id="hotDryBtn" class="btn secondary">🔥 Hot & Dry Profile</button>
+        <button id="exportBtn" class="btn secondary">📦 Export JSON Rules</button>
+      </div>
+
+      <h3>Connection</h3>
+      <div class="status-pill">
+        🔌 WebSocket: <span id="connectionStatus">Connecting...</span>
+      </div>
 
       <h3>Live Sensors</h3>
       <div class="sensor-grid">
-        <div>🌡️ Temperature: <span id="tempValue">--</span> °C</div>
-        <div>💧 Humidity: <span id="humidityValue">--</span> %</div>
-        <div>🌱 Soil Moisture: <span id="soilValue">--</span> %</div>
+        <div>🌡️ Temperature <strong><span id="tempValue">--</span> °C</strong></div>
+        <div>💧 Humidity <strong><span id="humidityValue">--</span> %</strong></div>
+        <div>🌱 Soil Moisture <strong><span id="soilValue">--</span> %</strong></div>
       </div>
 
-      <h3>Actuator Status</h3>
+      <h3>Actuators</h3>
       <div class="sensor-grid">
-        <div>🌊 Pump: <span id="pumpStatus">OFF</span></div>
-        <div>🪟 Window: <span id="windowStatus">0</span>°</div>
+        <div>🌊 Pump <strong><span id="pumpStatus">OFF</span></strong></div>
+        <div>🪟 Window <strong><span id="windowStatus">0</span>°</strong></div>
       </div>
+
+      <h3>Safety Validation</h3>
+      <pre id="validationPreview">No rules deployed yet.</pre>
 
       <h3>Generated JavaScript</h3>
       <pre id="codePreview">// Generated JavaScript appears here...</pre>
 
       <h3>Compiled JSON Rules</h3>
-      <pre id="rulePreview">// Structured rule array appears here...</pre>
+      <pre id="rulePreview">// Structured JSON rules appear here...</pre>
 
       <h3>Runtime Log</h3>
       <pre id="runtimePreview">// Runtime status appears here...</pre>
     </section>
   </main>
+
+  <div id="greenhouseModal" class="greenhouse-modal hidden">
+    <div class="greenhouse-panel">
+      <button id="closeGreenhouseBtn" class="close-btn">×</button>
+
+      <h2>🌿 Live Animated Greenhouse</h2>
+
+      <div class="greenhouse-scene">
+        <div id="sunGlow" class="sun">☀️</div>
+
+        <div class="cloud cloud-one">☁️</div>
+        <div class="cloud cloud-two">☁️</div>
+
+        <div class="greenhouse-3d">
+          <div class="roof"></div>
+          <div class="house-body">
+            <div id="windowPane" class="window-pane"></div>
+            <div id="plant" class="plant">🌱</div>
+            <div id="waterDrop" class="water-drop">💧</div>
+          </div>
+        </div>
+
+        <div id="mist" class="mist"></div>
+      </div>
+
+      <div class="greenhouse-readings">
+        <p>🌡️ Temperature: <span id="vizTemp">--</span> °C</p>
+        <p>💧 Humidity: <span id="vizHumidity">--</span> %</p>
+        <p>🌱 Soil: <span id="vizSoil">--</span> %</p>
+        <p>🌊 Pump: <span id="vizPump">OFF</span></p>
+        <p>🪟 Window: <span id="vizWindow">0</span>°</p>
+      </div>
+    </div>
+  </div>
 
   <xml id="toolbox" style="display: none">
     <category name="🌾 Sensor Inputs" colour="#10b981">
@@ -71,7 +125,6 @@
       <block type="controls_if"></block>
       <block type="logic_compare"></block>
       <block type="logic_operation"></block>
-      <block type="logic_boolean"></block>
       <block type="math_number"></block>
     </category>
   </xml>

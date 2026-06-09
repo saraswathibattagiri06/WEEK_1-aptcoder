@@ -1,8 +1,7 @@
-
-
 let workspace;
-let deployedRuleCode = "";
+let socket;
 let deployedRules = [];
+let demoMode = true;
 
 const greenhouseState = {
   temperature: 28,
@@ -19,53 +18,39 @@ const greenhouseSensors = {
 };
 
 const greenhouseActuators = {
-  setPumpState: (state) => {
+  setPumpState(state) {
     greenhouseState.pump = state;
-    addRuntimeLine(`Pump turned ${state === "HIGH" ? "ON" : "OFF"}`);
+    sendCommand({ type: "command", actuator: "pump", state });
+    updateDashboard();
   },
 
-  setWindowAngle: (angle) => {
+  setWindowAngle(angle) {
     const safeAngle = Math.max(0, Math.min(90, Number(angle)));
     greenhouseState.windowAngle = safeAngle;
-    addRuntimeLine(`Ventilation window set to ${safeAngle}°`);
+    sendCommand({ type: "command", actuator: "window", angle: safeAngle });
+    updateDashboard();
   }
 };
 
-function addRuntimeLine(message) {
-  const runtimePreview = document.getElementById("runtimePreview");
-  if (!runtimePreview) return;
-
-  runtimePreview.textContent += `\n${new Date().toLocaleTimeString()} - ${message}`;
-}
-
-// =============================================================================
-// 🧱 CUSTOM BLOCK DEFINITIONS
-// =============================================================================
-
+/* CUSTOM BLOCKS */
 Blockly.defineBlocksWithJsonArray([
   {
     type: "get_temperature",
     message0: "🌡️ Current Temperature (°C)",
     output: "Number",
-    colour: "#10b981",
-    tooltip: "Reads live temperature from the DHT22 sensor.",
-    helpUrl: ""
+    colour: "#10b981"
   },
   {
     type: "get_humidity",
-    message0: "💧 Current Air Humidity (%)",
+    message0: "💧 Current Humidity (%)",
     output: "Number",
-    colour: "#10b981",
-    tooltip: "Reads live humidity from the DHT22 sensor.",
-    helpUrl: ""
+    colour: "#10b981"
   },
   {
     type: "get_soil_moisture",
     message0: "🌱 Current Soil Moisture (%)",
     output: "Number",
-    colour: "#10b981",
-    tooltip: "Reads soil moisture from the analog sensor.",
-    helpUrl: ""
+    colour: "#10b981"
   },
   {
     type: "set_pump",
@@ -82,9 +67,7 @@ Blockly.defineBlocksWithJsonArray([
     ],
     previousStatement: null,
     nextStatement: null,
-    colour: "#3b82f6",
-    tooltip: "Turns water pump relay ON or OFF.",
-    helpUrl: ""
+    colour: "#3b82f6"
   },
   {
     type: "set_window",
@@ -100,47 +83,42 @@ Blockly.defineBlocksWithJsonArray([
     ],
     previousStatement: null,
     nextStatement: null,
-    colour: "#3b82f6",
-    tooltip: "Moves the ventilation servo window.",
-    helpUrl: ""
+    colour: "#3b82f6"
   }
 ]);
 
-// =============================================================================
-// ⚙️ CUSTOM JAVASCRIPT GENERATORS
-// =============================================================================
+/* JAVASCRIPT GENERATORS */
+javascript.javascriptGenerator.forBlock["get_temperature"] = () => [
+  "greenhouseSensors.getTemperature()",
+  javascript.Order.ATOMIC
+];
 
-javascript.javascriptGenerator.forBlock["get_temperature"] = function () {
-  return ["greenhouseSensors.getTemperature()", javascript.Order.ATOMIC];
-};
+javascript.javascriptGenerator.forBlock["get_humidity"] = () => [
+  "greenhouseSensors.getHumidity()",
+  javascript.Order.ATOMIC
+];
 
-javascript.javascriptGenerator.forBlock["get_humidity"] = function () {
-  return ["greenhouseSensors.getHumidity()", javascript.Order.ATOMIC];
-};
+javascript.javascriptGenerator.forBlock["get_soil_moisture"] = () => [
+  "greenhouseSensors.getSoilMoisture()",
+  javascript.Order.ATOMIC
+];
 
-javascript.javascriptGenerator.forBlock["get_soil_moisture"] = function () {
-  return ["greenhouseSensors.getSoilMoisture()", javascript.Order.ATOMIC];
-};
-
-javascript.javascriptGenerator.forBlock["set_pump"] = function (block) {
+javascript.javascriptGenerator.forBlock["set_pump"] = (block) => {
   const state = block.getFieldValue("PUMP_STATE");
   return `greenhouseActuators.setPumpState("${state}");\n`;
 };
 
-javascript.javascriptGenerator.forBlock["set_window"] = function (block) {
+javascript.javascriptGenerator.forBlock["set_window"] = (block) => {
   const angle = block.getFieldValue("WINDOW_ANGLE");
   return `greenhouseActuators.setWindowAngle(${angle});\n`;
 };
 
-// =============================================================================
-// 🚀 INIT
-// =============================================================================
-
-document.addEventListener("DOMContentLoaded", function () {
+/* INIT */
+document.addEventListener("DOMContentLoaded", () => {
   workspace = Blockly.inject("blocklyDiv", {
     toolbox: document.getElementById("toolbox"),
-    scrollbars: true,
     trashcan: true,
+    scrollbars: true,
     grid: {
       spacing: 20,
       length: 3,
@@ -149,92 +127,119 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  window.addEventListener("resize", () => Blockly.svgResize(workspace));
+  document.getElementById("deployBtn").addEventListener("click", deployRules);
+  document.getElementById("greenhouseBtn").addEventListener("click", openGreenhouse);
+  document.getElementById("closeGreenhouseBtn").addEventListener("click", closeGreenhouse);
+  document.getElementById("hotDryBtn").addEventListener("click", loadHotDryProfile);
+  document.getElementById("exportBtn").addEventListener("click", exportRules);
 
-  document.getElementById("runCodeBtn").addEventListener("click", deployRules);
-
-  updateSensorDashboard();
-  startTelemetryLoop();
+  updateDashboard();
+  connectWebSocket();
+  startDemoTelemetry();
 });
 
-// =============================================================================
-// 🧠 COMPILE + DEPLOY
-// =============================================================================
+/* WEBSOCKET */
+function connectWebSocket() {
+  socket = new WebSocket("ws://localhost:3000");
 
-function deployRules() {
-  const codePreview = document.getElementById("codePreview");
-  const rulePreview = document.getElementById("rulePreview");
-  const runtimePreview = document.getElementById("runtimePreview");
+  socket.onopen = () => {
+    demoMode = false;
+    document.getElementById("connectionStatus").textContent = "Connected ✅";
+  };
 
-  try {
-    const generatedCode = javascript.javascriptGenerator.workspaceToCode(workspace);
+  socket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
 
-    if (generatedCode.trim() === "") {
-      codePreview.textContent = "// ⚠️ Drag and connect blocks first.";
-      rulePreview.textContent = "// No rules compiled.";
-      runtimePreview.textContent = "⚠️ No rules deployed.";
-      return;
+    if (data.type === "telemetry") {
+      greenhouseState.temperature = Number(data.payload.temperature);
+      greenhouseState.humidity = Number(data.payload.humidity);
+      greenhouseState.soilMoisture = Number(data.payload.soil);
+      updateDashboard();
+      evaluateRules();
     }
+  };
 
-    deployedRuleCode = generatedCode;
-    deployedRules = extractRulesFromWorkspace();
+  socket.onerror = () => {
+    document.getElementById("connectionStatus").textContent = "Demo Mode 🌼";
+  };
 
-    codePreview.textContent = generatedCode;
-    rulePreview.textContent = JSON.stringify(deployedRules, null, 2);
+  socket.onclose = () => {
+    demoMode = true;
+    document.getElementById("connectionStatus").textContent = "Demo Mode 🌼";
+  };
+}
 
-    runtimePreview.textContent = "✅ Rules deployed successfully.\nRuntime engine is continuously evaluating telemetry.";
-  } catch (error) {
-    runtimePreview.textContent = `❌ Compile Error: ${error.message}`;
+function sendCommand(command) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(command));
   }
 }
 
-// =============================================================================
-// 📦 STRUCTURED JSON RULE COMPILER
-// =============================================================================
+/* DEMO TELEMETRY */
+function startDemoTelemetry() {
+  setInterval(() => {
+    if (!demoMode) return;
 
-function extractRulesFromWorkspace() {
+    greenhouseState.temperature = Math.floor(Math.random() * 16) + 22;
+    greenhouseState.humidity = Math.floor(Math.random() * 31) + 50;
+    greenhouseState.soilMoisture = Math.floor(Math.random() * 101);
+
+    updateDashboard();
+    evaluateRules();
+  }, 1000);
+}
+
+/* DEPLOY RULES */
+function deployRules() {
+  const code = javascript.javascriptGenerator.workspaceToCode(workspace);
+
+  document.getElementById("codePreview").textContent =
+    code || "// No generated JavaScript.";
+
+  deployedRules = extractRules();
+
+  document.getElementById("rulePreview").textContent =
+    JSON.stringify(deployedRules, null, 2);
+
+  validateRules();
+
+  document.getElementById("runtimePreview").textContent =
+    "✅ Rules deployed. Runtime is evaluating telemetry.";
+}
+
+/* JSON RULE COMPILER */
+function extractRules() {
   const rules = [];
-  const topBlocks = workspace.getTopBlocks(true);
 
-  topBlocks.forEach((block) => {
-    if (block.type === "controls_if") {
-      const conditionBlock = block.getInputTargetBlock("IF0");
-      const actionBlock = block.getInputTargetBlock("DO0");
+  workspace.getTopBlocks(true).forEach((block) => {
+    if (block.type !== "controls_if") return;
 
-      const condition = parseConditionBlock(conditionBlock);
-      const actions = parseActionChain(actionBlock);
+    const condition = parseCondition(block.getInputTargetBlock("IF0"));
+    const actions = parseActions(block.getInputTargetBlock("DO0"));
 
-      if (condition && actions.length > 0) {
-        rules.push({
-          id: `rule_${rules.length + 1}`,
-          condition,
-          actions
-        });
-      }
+    if (condition && condition.sensor !== "unknown" && actions.length > 0) {
+      rules.push({
+        id: `rule_${rules.length + 1}`,
+        condition,
+        actions
+      });
     }
   });
 
   return rules;
 }
 
-function parseConditionBlock(block) {
-  if (!block) return null;
+function parseCondition(block) {
+  if (!block || block.type !== "logic_compare") return null;
 
-  if (block.type === "logic_compare") {
-    const leftBlock = block.getInputTargetBlock("A");
-    const rightBlock = block.getInputTargetBlock("B");
-
-    return {
-      sensor: parseSensorBlock(leftBlock),
-      operator: block.getFieldValue("OP"),
-      value: parseNumberBlock(rightBlock)
-    };
-  }
-
-  return null;
+  return {
+    sensor: parseSensor(block.getInputTargetBlock("A")),
+    operator: block.getFieldValue("OP"),
+    value: parseNumber(block.getInputTargetBlock("B"))
+  };
 }
 
-function parseSensorBlock(block) {
+function parseSensor(block) {
   if (!block) return "unknown";
 
   if (block.type === "get_temperature") return "temperature";
@@ -244,79 +249,73 @@ function parseSensorBlock(block) {
   return "unknown";
 }
 
-function parseNumberBlock(block) {
+function parseNumber(block) {
   if (!block) return null;
-
-  if (block.type === "math_number") {
-    return Number(block.getFieldValue("NUM"));
-  }
-
+  if (block.type === "math_number") return Number(block.getFieldValue("NUM"));
   return null;
 }
 
-function parseActionChain(block) {
+function parseActions(block) {
   const actions = [];
-  let currentBlock = block;
+  let current = block;
 
-  while (currentBlock) {
-    if (currentBlock.type === "set_pump") {
+  while (current) {
+    if (current.type === "set_pump") {
       actions.push({
         type: "pump",
-        state: currentBlock.getFieldValue("PUMP_STATE")
+        state: current.getFieldValue("PUMP_STATE")
       });
     }
 
-    if (currentBlock.type === "set_window") {
+    if (current.type === "set_window") {
       actions.push({
         type: "window",
-        angle: Number(currentBlock.getFieldValue("WINDOW_ANGLE"))
+        angle: Number(current.getFieldValue("WINDOW_ANGLE"))
       });
     }
 
-    currentBlock = currentBlock.getNextBlock();
+    current = current.getNextBlock();
   }
 
   return actions;
 }
 
-// =============================================================================
-// 🔁 CONTINUOUS TELEMETRY + RUNTIME ENGINE
-// =============================================================================
+/* VALIDATION */
+function validateRules() {
+  const box = document.getElementById("validationPreview");
 
-function startTelemetryLoop() {
-  setInterval(() => {
-    greenhouseState.temperature = Math.floor(Math.random() * 16) + 22;
-    greenhouseState.humidity = Math.floor(Math.random() * 31) + 50;
-    greenhouseState.soilMoisture = Math.floor(Math.random() * 101);
-
-    updateSensorDashboard();
-
-    if (deployedRuleCode.trim() !== "") {
-      runJavaScriptRuntime();
-      runJsonRuleRuntime();
-    }
-  }, 1000);
-}
-
-function runJavaScriptRuntime() {
-  try {
-    const safeRunner = new Function(
-      "greenhouseSensors",
-      "greenhouseActuators",
-      deployedRuleCode
-    );
-
-    safeRunner(greenhouseSensors, greenhouseActuators);
-  } catch (error) {
-    document.getElementById("runtimePreview").textContent +=
-      `\n❌ JavaScript Runtime Error: ${error.message}`;
+  if (deployedRules.length === 0) {
+    box.textContent = "❌ No valid rules. Put actuator blocks inside IF/DO.";
+    return false;
   }
+
+  const errors = [];
+
+  deployedRules.forEach((rule) => {
+    const pumpStates = rule.actions
+      .filter((a) => a.type === "pump")
+      .map((a) => a.state);
+
+    if (pumpStates.includes("HIGH") && pumpStates.includes("LOW")) {
+      errors.push(`${rule.id}: Pump cannot be ON and OFF in the same rule.`);
+    }
+
+    rule.actions.forEach((action) => {
+      if (action.type === "window" && (action.angle < 0 || action.angle > 90)) {
+        errors.push(`${rule.id}: Window angle must be 0–90.`);
+      }
+    });
+  });
+
+  box.textContent = errors.length ? errors.join("\n") : "✅ Validation passed.";
+  return errors.length === 0;
 }
 
-function runJsonRuleRuntime() {
-  const runtimePreview = document.getElementById("runtimePreview");
+/* RUNTIME */
+function evaluateRules() {
+  if (deployedRules.length === 0) return;
 
-  runtimePreview.textContent =
+  let log =
     `Runtime running...\n` +
     `Temp=${greenhouseState.temperature}°C | ` +
     `Humidity=${greenhouseState.humidity}% | ` +
@@ -325,36 +324,37 @@ function runJsonRuleRuntime() {
   deployedRules.forEach((rule) => {
     const active = evaluateCondition(rule.condition);
 
-    runtimePreview.textContent +=
-      `\n${rule.id}: ${active ? "ACTIVE ✅" : "inactive"}`;
+    log += `\n${rule.id}: ${active ? "ACTIVE ✅" : "inactive"}`;
 
     if (active) {
       rule.actions.forEach(executeAction);
     }
   });
 
-  runtimePreview.textContent +=
-    `\n\nFinal State: Pump=${greenhouseState.pump === "HIGH" ? "ON" : "OFF"}, Window=${greenhouseState.windowAngle}°`;
+  log +=
+    `\n\nFinal State: Pump=${greenhouseState.pump === "HIGH" ? "ON" : "OFF"}, ` +
+    `Window=${greenhouseState.windowAngle}°`;
 
-  updateSensorDashboard();
+  document.getElementById("runtimePreview").textContent = log;
+  updateDashboard();
 }
 
 function evaluateCondition(condition) {
-  const currentValue = greenhouseState[condition.sensor];
+  const value = greenhouseState[condition.sensor];
 
   switch (condition.operator) {
     case "GT":
-      return currentValue > condition.value;
+      return value > condition.value;
     case "GTE":
-      return currentValue >= condition.value;
+      return value >= condition.value;
     case "LT":
-      return currentValue < condition.value;
+      return value < condition.value;
     case "LTE":
-      return currentValue <= condition.value;
+      return value <= condition.value;
     case "EQ":
-      return currentValue === condition.value;
+      return value === condition.value;
     case "NEQ":
-      return currentValue !== condition.value;
+      return value !== condition.value;
     default:
       return false;
   }
@@ -370,7 +370,8 @@ function executeAction(action) {
   }
 }
 
-function updateSensorDashboard() {
+/* DASHBOARD */
+function updateDashboard() {
   document.getElementById("tempValue").textContent = greenhouseState.temperature;
   document.getElementById("humidityValue").textContent = greenhouseState.humidity;
   document.getElementById("soilValue").textContent = greenhouseState.soilMoisture;
@@ -380,4 +381,89 @@ function updateSensorDashboard() {
 
   document.getElementById("windowStatus").textContent =
     greenhouseState.windowAngle;
+
+  updateGreenhouse();
+}
+
+/* GREENHOUSE MODAL */
+function openGreenhouse() {
+  document.getElementById("greenhouseModal").classList.remove("hidden");
+  updateGreenhouse();
+}
+
+function closeGreenhouse() {
+  document.getElementById("greenhouseModal").classList.add("hidden");
+}
+
+function updateGreenhouse() {
+  if (!document.getElementById("vizTemp")) return;
+
+  const temp = greenhouseState.temperature;
+  const humidity = greenhouseState.humidity;
+  const soil = greenhouseState.soilMoisture;
+  const pump = greenhouseState.pump;
+  const windowAngle = greenhouseState.windowAngle;
+
+  document.getElementById("vizTemp").textContent = temp;
+  document.getElementById("vizHumidity").textContent = humidity;
+  document.getElementById("vizSoil").textContent = soil;
+  document.getElementById("vizPump").textContent = pump === "HIGH" ? "ON" : "OFF";
+  document.getElementById("vizWindow").textContent = windowAngle;
+
+  const scene = document.querySelector(".greenhouse-scene");
+  const plant = document.getElementById("plant");
+  const sun = document.getElementById("sunGlow");
+  const mist = document.getElementById("mist");
+  const water = document.getElementById("waterDrop");
+  const windowPane = document.getElementById("windowPane");
+
+  scene.classList.remove("hot-env", "normal-env", "humid-env", "dry-env");
+  plant.classList.remove("healthy", "dry", "weak", "dying");
+
+  if (temp >= 36 || soil <= 15) {
+    scene.classList.add("dry-env");
+    plant.classList.add("dying");
+    plant.textContent = "🥀";
+  } else if (temp > 30 || soil < 35) {
+    scene.classList.add("hot-env");
+    plant.classList.add("weak");
+    plant.textContent = "🌿";
+  } else if (humidity > 75) {
+    scene.classList.add("humid-env");
+    plant.classList.add("healthy");
+    plant.textContent = "🌱";
+  } else {
+    scene.classList.add("normal-env");
+    plant.classList.add("healthy");
+    plant.textContent = "🌱";
+  }
+
+  sun.classList.toggle("hot", temp > 30);
+  mist.classList.toggle("active", humidity > 70);
+  water.classList.toggle("active", pump === "HIGH");
+
+  windowPane.style.transform = `rotateY(${windowAngle}deg)`;
+}
+/* SAMPLE PROFILE */
+function loadHotDryProfile() {
+  alert("Hot & Dry Clicked");
+
+  greenhouseState.temperature = 35;
+  greenhouseState.humidity = 42;
+  greenhouseState.soilMoisture = 18;
+
+  updateDashboard();
+  evaluateRules();
+}
+
+/* EXPORT JSON */
+function exportRules() {
+  const blob = new Blob([JSON.stringify(deployedRules, null, 2)], {
+    type: "application/json"
+  });
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "greenhouse-rules.json";
+  link.click();
 }
