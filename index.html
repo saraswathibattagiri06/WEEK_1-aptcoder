@@ -1,48 +1,81 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🌱 Smart Greenhouse Automation Dashboard</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://unpkg.com/blockly/blockly.min.js"></script>
-    <script src="https://unpkg.com/blockly/javascript_compressed.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Greenhouse Rule Engine</title>
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <script src="https://unpkg.com/blockly/blockly.min.js"></script>
+  <script src="https://unpkg.com/blockly/javascript_compressed.js"></script>
 </head>
+
 <body>
-    <header>
-        <h1>🌱 FarmLogic IoT Orchestrator</h1>
-        <p>Day 2 Workspace: Drag and drop blocks below to build greenhouse rules.</p>
-    </header>
+  <div class="leaf leaf-1">🍃</div>
+  <div class="leaf leaf-2">🌿</div>
+  <div class="leaf leaf-3">🍀</div>
 
-    <main class="dashboard-container">
-        <section class="blockly-section">
-            <div id="blocklyDiv"></div>
-        </section>
-        
-        <section class="control-deck">
-            <h2>Live Logic Compilation</h2>
-            <button id="runCodeBtn" class="btn-primary">⚡ Execute Rules</button>
-            <pre id="codePreview">// JavaScript generated rules will appear here...</pre>
-        </section>
-    </main>
+  <header>
+    <h1>🌱 FarmLogic IoT Orchestrator</h1>
+    <p>Day 3–4: Blockly Code Generator + Continuous Rule Runtime Engine</p>
+  </header>
 
-    <xml id="toolbox" style="display: none">
-        <category name="🌾 Sensor Inputs" colour="#10b981">
-            <block type="get_temperature"></block>
-            <block type="get_humidity"></block>
-            <block type="get_soil_moisture"></block>
-        </category>
-        <category name="⚙️ Actuator Outputs" colour="#3b82f6">
-            <block type="set_pump"></block>
-            <block type="set_window"></block>
-        </category>
-        <category name="🧠 Logic Rules" colour="#f59e0b">
-            <block type="controls_if"></block>
-            <block type="logic_compare"></block>
-            <block type="math_number"></block>
-        </category>
-    </xml>
+  <main class="dashboard-container">
+    <section class="blockly-section">
+      <div id="blocklyDiv"></div>
+    </section>
 
-    <script src="app.js"></script>
+    <section class="control-deck">
+      <h2>Greenhouse Runtime</h2>
+
+      <button id="runCodeBtn" class="btn-primary">🌾 Compile & Deploy Rules</button>
+
+      <h3>Live Sensors</h3>
+      <div class="sensor-grid">
+        <div>🌡️ Temperature: <span id="tempValue">--</span> °C</div>
+        <div>💧 Humidity: <span id="humidityValue">--</span> %</div>
+        <div>🌱 Soil Moisture: <span id="soilValue">--</span> %</div>
+      </div>
+
+      <h3>Actuator Status</h3>
+      <div class="sensor-grid">
+        <div>🌊 Pump: <span id="pumpStatus">OFF</span></div>
+        <div>🪟 Window: <span id="windowStatus">0</span>°</div>
+      </div>
+
+      <h3>Generated JavaScript</h3>
+      <pre id="codePreview">// Generated JavaScript appears here...</pre>
+
+      <h3>Compiled JSON Rules</h3>
+      <pre id="rulePreview">// Structured rule array appears here...</pre>
+
+      <h3>Runtime Log</h3>
+      <pre id="runtimePreview">// Runtime status appears here...</pre>
+    </section>
+  </main>
+
+  <xml id="toolbox" style="display: none">
+    <category name="🌾 Sensor Inputs" colour="#10b981">
+      <block type="get_temperature"></block>
+      <block type="get_humidity"></block>
+      <block type="get_soil_moisture"></block>
+    </category>
+
+    <category name="⚙️ Actuator Outputs" colour="#3b82f6">
+      <block type="set_pump"></block>
+      <block type="set_window"></block>
+    </category>
+
+    <category name="🧠 Logic Rules" colour="#f59e0b">
+      <block type="controls_if"></block>
+      <block type="logic_compare"></block>
+      <block type="logic_operation"></block>
+      <block type="logic_boolean"></block>
+      <block type="math_number"></block>
+    </category>
+  </xml>
+
+  <script src="app.js"></script>
 </body>
 </html>
