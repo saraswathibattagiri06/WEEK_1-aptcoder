@@ -1,172 +1,199 @@
-let workspace;
-let socket;
-let deployedRules = [];
-let demoMode = true;
+/**
+ * app.js — Application Bootstrap & Wiring
+ *
+ * Responsibilities:
+ *   - Initialise Blockly workspace
+ *   - Manage WebSocket connection (real or demo)
+ *   - Drive the demo telemetry loop
+ *   - Handle all UI interactions (Deploy, Export, Modals, etc.)
+ *   - Update the dashboard, gauges, chart, and greenhouse scene
+ */
 
-const greenhouseState = {
-  temperature: 28,
-  humidity: 65,
-  soilMoisture: 45,
-  pump: "LOW",
-  windowAngle: 0
-};
+/* ═══════════════════════════════════════════════════════════════
+   MODULE STATE
+   ═══════════════════════════════════════════════════════════════ */
 
-const greenhouseSensors = {
-  getTemperature: () => greenhouseState.temperature,
-  getHumidity: () => greenhouseState.humidity,
-  getSoilMoisture: () => greenhouseState.soilMoisture
-};
+let workspace = null;
+let socket    = null;
+let demoMode  = true;
+let demoTimer = null;
 
-const greenhouseActuators = {
-  setPumpState(state) {
-    greenhouseState.pump = state;
-    sendCommand({ type: "command", actuator: "pump", state });
-    updateDashboard();
-  },
+/** Configurable WebSocket URL — user can override via Config modal */
+let wsUrl = "ws://localhost:3000";
 
-  setWindowAngle(angle) {
-    const safeAngle = Math.max(0, Math.min(90, Number(angle)));
-    greenhouseState.windowAngle = safeAngle;
-    sendCommand({ type: "command", actuator: "window", angle: safeAngle });
-    updateDashboard();
-  }
-};
+/* ═══════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════ */
 
-/* CUSTOM BLOCKS */
-Blockly.defineBlocksWithJsonArray([
-  {
-    type: "get_temperature",
-    message0: "🌡️ Current Temperature (°C)",
-    output: "Number",
-    colour: "#10b981"
-  },
-  {
-    type: "get_humidity",
-    message0: "💧 Current Humidity (%)",
-    output: "Number",
-    colour: "#10b981"
-  },
-  {
-    type: "get_soil_moisture",
-    message0: "🌱 Current Soil Moisture (%)",
-    output: "Number",
-    colour: "#10b981"
-  },
-  {
-    type: "set_pump",
-    message0: "🌊 Turn Water Pump %1",
-    args0: [
-      {
-        type: "field_dropdown",
-        name: "PUMP_STATE",
-        options: [
-          ["ON", "HIGH"],
-          ["OFF", "LOW"]
-        ]
-      }
-    ],
-    previousStatement: null,
-    nextStatement: null,
-    colour: "#3b82f6"
-  },
-  {
-    type: "set_window",
-    message0: "🪟 Set Ventilation Window to %1 Degrees",
-    args0: [
-      {
-        type: "field_number",
-        name: "WINDOW_ANGLE",
-        value: 0,
-        min: 0,
-        max: 90
-      }
-    ],
-    previousStatement: null,
-    nextStatement: null,
-    colour: "#3b82f6"
-  }
-]);
-
-/* JAVASCRIPT GENERATORS */
-javascript.javascriptGenerator.forBlock["get_temperature"] = () => [
-  "greenhouseSensors.getTemperature()",
-  javascript.Order.ATOMIC
-];
-
-javascript.javascriptGenerator.forBlock["get_humidity"] = () => [
-  "greenhouseSensors.getHumidity()",
-  javascript.Order.ATOMIC
-];
-
-javascript.javascriptGenerator.forBlock["get_soil_moisture"] = () => [
-  "greenhouseSensors.getSoilMoisture()",
-  javascript.Order.ATOMIC
-];
-
-javascript.javascriptGenerator.forBlock["set_pump"] = (block) => {
-  const state = block.getFieldValue("PUMP_STATE");
-  return `greenhouseActuators.setPumpState("${state}");\n`;
-};
-
-javascript.javascriptGenerator.forBlock["set_window"] = (block) => {
-  const angle = block.getFieldValue("WINDOW_ANGLE");
-  return `greenhouseActuators.setWindowAngle(${angle});\n`;
-};
-
-/* INIT */
 document.addEventListener("DOMContentLoaded", () => {
-  workspace = Blockly.inject("blocklyDiv", {
-    toolbox: document.getElementById("toolbox"),
-    trashcan: true,
-    scrollbars: true,
-    grid: {
-      spacing: 20,
-      length: 3,
-      colour: "#d1fae5",
-      snap: true
-    }
-  });
-
-  document.getElementById("deployBtn").addEventListener("click", deployRules);
-  document.getElementById("greenhouseBtn").addEventListener("click", openGreenhouse);
-  document.getElementById("closeGreenhouseBtn").addEventListener("click", closeGreenhouse);
-  document.getElementById("hotDryBtn").addEventListener("click", loadHotDryProfile);
-  document.getElementById("exportBtn").addEventListener("click", exportRules);
-
+  initBlockly();
+  initChart();
+  bindUI();
   updateDashboard();
   connectWebSocket();
   startDemoTelemetry();
 });
 
-/* WEBSOCKET */
+/* ─── Blockly ────────────────────────────────────────────────── */
+function initBlockly() {
+  workspace = Blockly.inject("blocklyDiv", {
+    toolbox: document.getElementById("toolbox"),
+    trashcan: true,
+    scrollbars: true,
+    zoom: { controls: true, wheel: true, startScale: 0.95 },
+    grid: { spacing: 24, length: 4, colour: "#1e293b", snap: true },
+    theme: Blockly.Theme.defineTheme("farmlogic", {
+      base: Blockly.Themes.Classic,
+      componentStyles: {
+        workspaceBackgroundColour: "#020617",
+        toolboxBackgroundColour:   "#0f172a",
+        toolboxForegroundColour:   "#94a3b8",
+        flyoutBackgroundColour:    "#0f172a",
+        flyoutForegroundColour:    "#cbd5e1",
+        flyoutOpacity: 1,
+        scrollbarColour: "#334155",
+        scrollbarOpacity: 0.8
+      }
+    })
+  });
+}
+
+/* ─── UI Bindings ────────────────────────────────────────────── */
+function bindUI() {
+  // Deploy
+  document.getElementById("deployBtn").addEventListener("click", runDeploy);
+
+  // Clear workspace
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    if (confirm("Clear all blocks?")) workspace.clear();
+  });
+
+  // Hot & Dry profile
+  document.getElementById("hotDryBtn").addEventListener("click", loadHotDryProfile);
+
+  // Export
+  document.getElementById("exportBtn").addEventListener("click", exportRules);
+
+  // Clear log
+  document.getElementById("clearLogBtn").addEventListener("click", () => {
+    document.getElementById("runtimePreview").textContent = "Log cleared.";
+  });
+
+  // Greenhouse scene modal
+  document.getElementById("greenhouseBtn").addEventListener("click", () => {
+    document.getElementById("greenhouseModal").classList.remove("hidden");
+    updateGreenhouse();
+  });
+  document.getElementById("closeGreenhouseBtn").addEventListener("click", () => {
+    document.getElementById("greenhouseModal").classList.add("hidden");
+  });
+  document.getElementById("closeGreenhouseBtn2").addEventListener("click", () => {
+    document.getElementById("greenhouseModal").classList.add("hidden");
+  });
+
+  // Debug drawer
+  document.getElementById("drawerToggle").addEventListener("click", () => {
+    document.getElementById("drawer").classList.toggle("open");
+  });
+  document.getElementById("drawerClose").addEventListener("click", () => {
+    document.getElementById("drawer").classList.remove("open");
+  });
+
+  // Ngrok / WS config modal
+  document.getElementById("ngrokBtn").addEventListener("click", () => {
+    document.getElementById("wsUrlInput").value = wsUrl;
+    document.getElementById("ngrokModal").classList.remove("hidden");
+  });
+  document.getElementById("closeNgrokBtn").addEventListener("click", () => {
+    document.getElementById("ngrokModal").classList.add("hidden");
+  });
+  document.getElementById("closeNgrokBackdrop").addEventListener("click", () => {
+    document.getElementById("ngrokModal").classList.add("hidden");
+  });
+  document.getElementById("connectBtn").addEventListener("click", () => {
+    const val = document.getElementById("wsUrlInput").value.trim();
+    if (val) {
+      wsUrl = val;
+      document.getElementById("ngrokModal").classList.add("hidden");
+      reconnectWebSocket();
+    }
+  });
+  document.getElementById("demoBtn").addEventListener("click", () => {
+    demoMode = true;
+    document.getElementById("ngrokModal").classList.add("hidden");
+    setConnectionStatus("demo");
+    toast("Running in Demo Mode 🌼", "warn");
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WEBSOCKET
+   ═══════════════════════════════════════════════════════════════ */
+
 function connectWebSocket() {
-  socket = new WebSocket("ws://localhost:3000");
+  try {
+    socket = new WebSocket(wsUrl);
+  } catch (e) {
+    console.warn("WebSocket init failed:", e.message);
+    enterDemoMode();
+    return;
+  }
 
   socket.onopen = () => {
     demoMode = false;
-    document.getElementById("connectionStatus").textContent = "Connected ✅";
+    setConnectionStatus("connected");
+    toast("Connected to greenhouse server ✅", "success");
   };
 
   socket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-
-    if (data.type === "telemetry") {
-      greenhouseState.temperature = Number(data.payload.temperature);
-      greenhouseState.humidity = Number(data.payload.humidity);
-      greenhouseState.soilMoisture = Number(data.payload.soil);
-      updateDashboard();
-      evaluateRules();
+    try {
+      const data = JSON.parse(event.data);
+      handleServerMessage(data);
+    } catch (e) {
+      console.error("WS parse error:", e);
     }
   };
 
-  socket.onerror = () => {
-    document.getElementById("connectionStatus").textContent = "Demo Mode 🌼";
-  };
+  socket.onerror = () => enterDemoMode();
 
   socket.onclose = () => {
-    demoMode = true;
-    document.getElementById("connectionStatus").textContent = "Demo Mode 🌼";
+    enterDemoMode();
+    // Auto-reconnect after 5 s
+    setTimeout(connectWebSocket, 5000);
   };
+}
+
+function reconnectWebSocket() {
+  if (socket) {
+    socket.onclose = null; // prevent auto-reconnect loop
+    socket.close();
+  }
+  connectWebSocket();
+}
+
+function handleServerMessage(data) {
+  if (data.type === "telemetry") {
+    greenhouseState.temperature  = Number(data.payload.temperature);
+    greenhouseState.humidity     = Number(data.payload.humidity);
+    greenhouseState.soilMoisture = Number(data.payload.soilMoisture ?? data.payload.soil ?? 0);
+
+    pushChartData(
+      greenhouseState.temperature,
+      greenhouseState.humidity,
+      greenhouseState.soilMoisture
+    );
+
+    updateDashboard();
+
+    const log = evaluateRules();
+    if (log) appendLog(log);
+  }
+
+  if (data.type === "command_state") {
+    greenhouseState.pump        = data.payload.pump ?? "LOW";
+    greenhouseState.windowAngle = Number(data.payload.window ?? 0);
+    updateDashboard();
+  }
 }
 
 function sendCommand(command) {
@@ -175,295 +202,355 @@ function sendCommand(command) {
   }
 }
 
-/* DEMO TELEMETRY */
+function enterDemoMode() {
+  demoMode = true;
+  setConnectionStatus("demo");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEMO TELEMETRY  (only runs when no real connection)
+   ═══════════════════════════════════════════════════════════════ */
+
 function startDemoTelemetry() {
-  setInterval(() => {
+  if (demoTimer) clearInterval(demoTimer);
+
+  demoTimer = setInterval(() => {
     if (!demoMode) return;
 
-    greenhouseState.temperature = Math.floor(Math.random() * 16) + 22;
-    greenhouseState.humidity = Math.floor(Math.random() * 31) + 50;
-    greenhouseState.soilMoisture = Math.floor(Math.random() * 101);
+    // Smooth random walk for realistic-looking data
+    greenhouseState.temperature  = clamp(greenhouseState.temperature  + jitter(3), 18, 45);
+    greenhouseState.humidity     = clamp(greenhouseState.humidity     + jitter(4), 30, 95);
+    greenhouseState.soilMoisture = clamp(greenhouseState.soilMoisture + jitter(5), 0,  100);
+
+    pushChartData(
+      greenhouseState.temperature,
+      greenhouseState.humidity,
+      greenhouseState.soilMoisture
+    );
 
     updateDashboard();
-    evaluateRules();
+
+    const log = evaluateRules();
+    if (log) appendLog(log);
   }, 1000);
 }
 
-/* DEPLOY RULES */
-function deployRules() {
+function jitter(range) {
+  return (Math.random() - 0.5) * range;
+}
+
+function clamp(val, min, max) {
+  return Math.max(min, Math.min(max, Math.round(val * 10) / 10));
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEPLOY PIPELINE
+   ═══════════════════════════════════════════════════════════════ */
+
+async function runDeploy() {
+  // Reset pipeline UI
+  setPipelineStep("compile",  "active",  "…");
+  setPipelineStep("validate", "idle",    "—");
+  setPipelineStep("deploy",   "idle",    "—");
+
+  await delay(200);
+
+  /* Step 1 — Compile */
   const code = javascript.javascriptGenerator.workspaceToCode(workspace);
+  document.getElementById("codePreview").textContent = code || "// No blocks placed.";
 
-  document.getElementById("codePreview").textContent =
-    code || "// No generated JavaScript.";
+  const rules = extractRules(workspace);
+  document.getElementById("rulePreview").textContent = JSON.stringify(rules, null, 2);
 
-  deployedRules = extractRules();
-
-  document.getElementById("rulePreview").textContent =
-    JSON.stringify(deployedRules, null, 2);
-
-  validateRules();
-
-  document.getElementById("runtimePreview").textContent =
-    "✅ Rules deployed. Runtime is evaluating telemetry.";
-}
-
-/* JSON RULE COMPILER */
-function extractRules() {
-  const rules = [];
-
-  workspace.getTopBlocks(true).forEach((block) => {
-    if (block.type !== "controls_if") return;
-
-    const condition = parseCondition(block.getInputTargetBlock("IF0"));
-    const actions = parseActions(block.getInputTargetBlock("DO0"));
-
-    if (condition && condition.sensor !== "unknown" && actions.length > 0) {
-      rules.push({
-        id: `rule_${rules.length + 1}`,
-        condition,
-        actions
-      });
-    }
-  });
-
-  return rules;
-}
-
-function parseCondition(block) {
-  if (!block || block.type !== "logic_compare") return null;
-
-  return {
-    sensor: parseSensor(block.getInputTargetBlock("A")),
-    operator: block.getFieldValue("OP"),
-    value: parseNumber(block.getInputTargetBlock("B"))
-  };
-}
-
-function parseSensor(block) {
-  if (!block) return "unknown";
-
-  if (block.type === "get_temperature") return "temperature";
-  if (block.type === "get_humidity") return "humidity";
-  if (block.type === "get_soil_moisture") return "soilMoisture";
-
-  return "unknown";
-}
-
-function parseNumber(block) {
-  if (!block) return null;
-  if (block.type === "math_number") return Number(block.getFieldValue("NUM"));
-  return null;
-}
-
-function parseActions(block) {
-  const actions = [];
-  let current = block;
-
-  while (current) {
-    if (current.type === "set_pump") {
-      actions.push({
-        type: "pump",
-        state: current.getFieldValue("PUMP_STATE")
-      });
-    }
-
-    if (current.type === "set_window") {
-      actions.push({
-        type: "window",
-        angle: Number(current.getFieldValue("WINDOW_ANGLE"))
-      });
-    }
-
-    current = current.getNextBlock();
+  if (!code.trim()) {
+    setPipelineStep("compile", "error", "empty");
+    toast("No blocks to compile. Build some logic first.", "error");
+    return;
   }
 
-  return actions;
-}
+  setPipelineStep("compile", "success", "OK");
+  await delay(200);
 
-/* VALIDATION */
-function validateRules() {
-  const box = document.getElementById("validationPreview");
+  /* Step 2 — Validate */
+  setPipelineStep("validate", "active", "…");
+  await delay(200);
 
-  if (deployedRules.length === 0) {
-    box.textContent = "❌ No valid rules. Put actuator blocks inside IF/DO.";
-    return false;
+  const { valid, errors } = validateRules(rules);
+  document.getElementById("validationPreview").textContent =
+    valid ? "✅ All rules passed validation." : errors.join("\n");
+
+  if (!valid) {
+    setPipelineStep("validate", "error", "fail");
+    errors.forEach((e) => toast(e, "error"));
+    return;
   }
 
-  const errors = [];
+  setPipelineStep("validate", "success", "OK");
+  await delay(200);
 
-  deployedRules.forEach((rule) => {
-    const pumpStates = rule.actions
-      .filter((a) => a.type === "pump")
-      .map((a) => a.state);
+  /* Step 3 — Deploy */
+  setPipelineStep("deploy", "active", "…");
+  await delay(300);
 
-    if (pumpStates.includes("HIGH") && pumpStates.includes("LOW")) {
-      errors.push(`${rule.id}: Pump cannot be ON and OFF in the same rule.`);
-    }
+  deployedRules = rules;
 
-    rule.actions.forEach((action) => {
-      if (action.type === "window" && (action.angle < 0 || action.angle > 90)) {
-        errors.push(`${rule.id}: Window angle must be 0–90.`);
-      }
-    });
-  });
+  // Reset debounce cache so newly deployed rules take effect immediately
+  lastSent.pump        = null;
+  lastSent.windowAngle = null;
 
-  box.textContent = errors.length ? errors.join("\n") : "✅ Validation passed.";
-  return errors.length === 0;
+  setPipelineStep("deploy", "success", "LIVE");
+  toast(`${rules.length} rule${rules.length !== 1 ? "s" : ""} deployed and active ✅`, "success");
+  appendLog(`[${new Date().toLocaleTimeString()}] ── Rules deployed (${rules.length} active) ──`);
 }
 
-/* RUNTIME */
-function evaluateRules() {
-  if (deployedRules.length === 0) return;
-
-  let log =
-    `Runtime running...\n` +
-    `Temp=${greenhouseState.temperature}°C | ` +
-    `Humidity=${greenhouseState.humidity}% | ` +
-    `Soil=${greenhouseState.soilMoisture}%\n`;
-
-  deployedRules.forEach((rule) => {
-    const active = evaluateCondition(rule.condition);
-
-    log += `\n${rule.id}: ${active ? "ACTIVE ✅" : "inactive"}`;
-
-    if (active) {
-      rule.actions.forEach(executeAction);
-    }
-  });
-
-  log +=
-    `\n\nFinal State: Pump=${greenhouseState.pump === "HIGH" ? "ON" : "OFF"}, ` +
-    `Window=${greenhouseState.windowAngle}°`;
-
-  document.getElementById("runtimePreview").textContent = log;
-  updateDashboard();
+function setPipelineStep(step, state, label) {
+  const el = document.getElementById(`step-${step}`);
+  const stateEl = document.getElementById(`${step}State`);
+  el.className = `pipeline-step ${state === "idle" ? "" : state}`;
+  stateEl.textContent = label;
 }
 
-function evaluateCondition(condition) {
-  const value = greenhouseState[condition.sensor];
+/* ═══════════════════════════════════════════════════════════════
+   DASHBOARD
+   ═══════════════════════════════════════════════════════════════ */
 
-  switch (condition.operator) {
-    case "GT":
-      return value > condition.value;
-    case "GTE":
-      return value >= condition.value;
-    case "LT":
-      return value < condition.value;
-    case "LTE":
-      return value <= condition.value;
-    case "EQ":
-      return value === condition.value;
-    case "NEQ":
-      return value !== condition.value;
-    default:
-      return false;
-  }
-}
-
-function executeAction(action) {
-  if (action.type === "pump") {
-    greenhouseActuators.setPumpState(action.state);
-  }
-
-  if (action.type === "window") {
-    greenhouseActuators.setWindowAngle(action.angle);
-  }
-}
-
-/* DASHBOARD */
 function updateDashboard() {
-  document.getElementById("tempValue").textContent = greenhouseState.temperature;
-  document.getElementById("humidityValue").textContent = greenhouseState.humidity;
-  document.getElementById("soilValue").textContent = greenhouseState.soilMoisture;
+  const { temperature, humidity, soilMoisture, pump, windowAngle } = greenhouseState;
 
-  document.getElementById("pumpStatus").textContent =
-    greenhouseState.pump === "HIGH" ? "ON" : "OFF";
+  // Gauges
+  setGauge("temp",    temperature,  0, 50);
+  setGauge("humid",   humidity,     0, 100);
+  setGauge("soil",    soilMoisture, 0, 100);
 
-  document.getElementById("windowStatus").textContent =
-    greenhouseState.windowAngle;
+  document.getElementById("tempValue").textContent     = temperature.toFixed(1);
+  document.getElementById("humidityValue").textContent = humidity.toFixed(0);
+  document.getElementById("soilValue").textContent     = soilMoisture.toFixed(0);
 
-  updateGreenhouse();
+  // Actuator badges
+  const pumpBadge   = document.getElementById("pumpStatus");
+  const windowBadge = document.getElementById("windowStatus");
+  const pumpCard    = document.getElementById("pumpCard");
+
+  const pumpOn = pump === "HIGH";
+  pumpBadge.textContent   = pumpOn ? "ON" : "OFF";
+  pumpBadge.className     = `actuator-badge${pumpOn ? " on" : ""}`;
+  pumpCard.classList.toggle("active", pumpOn);
+
+  windowBadge.textContent = `${windowAngle}°`;
+
+  // Greenhouse scene (only if visible)
+  if (!document.getElementById("greenhouseModal").classList.contains("hidden")) {
+    updateGreenhouse();
+  }
 }
 
-/* GREENHOUSE MODAL */
-function openGreenhouse() {
-  document.getElementById("greenhouseModal").classList.remove("hidden");
-  updateGreenhouse();
+function setGauge(id, value, min, max) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  document.getElementById(`${id}Bar`).style.width = `${pct}%`;
 }
 
-function closeGreenhouse() {
-  document.getElementById("greenhouseModal").classList.add("hidden");
-}
+/* ═══════════════════════════════════════════════════════════════
+   GREENHOUSE SCENE
+   ═══════════════════════════════════════════════════════════════ */
 
 function updateGreenhouse() {
-  if (!document.getElementById("vizTemp")) return;
+  const el = (id) => document.getElementById(id);
+  const { temperature: t, humidity: h, soilMoisture: s, pump, windowAngle } = greenhouseState;
 
-  const temp = greenhouseState.temperature;
-  const humidity = greenhouseState.humidity;
-  const soil = greenhouseState.soilMoisture;
-  const pump = greenhouseState.pump;
-  const windowAngle = greenhouseState.windowAngle;
+  el("vizTemp").textContent     = t.toFixed(1);
+  el("vizHumidity").textContent = h.toFixed(0);
+  el("vizSoil").textContent     = s.toFixed(0);
+  el("vizPump").textContent     = pump === "HIGH" ? "ON" : "OFF";
+  el("vizWindow").textContent   = windowAngle;
 
-  document.getElementById("vizTemp").textContent = temp;
-  document.getElementById("vizHumidity").textContent = humidity;
-  document.getElementById("vizSoil").textContent = soil;
-  document.getElementById("vizPump").textContent = pump === "HIGH" ? "ON" : "OFF";
-  document.getElementById("vizWindow").textContent = windowAngle;
-
-  const scene = document.querySelector(".greenhouse-scene");
-  const plant = document.getElementById("plant");
-  const sun = document.getElementById("sunGlow");
-  const mist = document.getElementById("mist");
-  const water = document.getElementById("waterDrop");
-  const windowPane = document.getElementById("windowPane");
+  const scene = document.getElementById("greenhouseScene");
+  const plant = el("plant");
+  const sun   = el("sunGlow");
 
   scene.classList.remove("hot-env", "normal-env", "humid-env", "dry-env");
   plant.classList.remove("healthy", "dry", "weak", "dying");
 
-  if (temp >= 36 || soil <= 15) {
+  // Plant health + scene atmosphere
+  if (t >= 36 || s <= 10) {
     scene.classList.add("dry-env");
-    plant.classList.add("dying");
     plant.textContent = "🥀";
-  } else if (temp > 30 || soil < 35) {
+  } else if (t > 30 || s < 30) {
     scene.classList.add("hot-env");
-    plant.classList.add("weak");
     plant.textContent = "🌿";
-  } else if (humidity > 75) {
+  } else if (h > 75) {
     scene.classList.add("humid-env");
-    plant.classList.add("healthy");
     plant.textContent = "🌱";
   } else {
     scene.classList.add("normal-env");
-    plant.classList.add("healthy");
     plant.textContent = "🌱";
   }
 
-  sun.classList.toggle("hot", temp > 30);
-  mist.classList.toggle("active", humidity > 70);
-  water.classList.toggle("active", pump === "HIGH");
+  sun.classList.toggle("hot", t > 30);
 
-  windowPane.style.transform = `rotateY(${windowAngle}deg)`;
+  // Mist when humid
+  el("mist").classList.toggle("active", h > 70);
+
+  // Water droplets when pump on
+  el("waterDrop").classList.toggle("active", pump === "HIGH");
+
+  // Window servo angle visualised as CSS transform
+  el("windowPane").style.transform = `rotateY(${windowAngle}deg)`;
 }
-/* SAMPLE PROFILE */
-function loadHotDryProfile() {
-  alert("Hot & Dry Clicked");
 
-  greenhouseState.temperature = 35;
-  greenhouseState.humidity = 42;
-  greenhouseState.soilMoisture = 18;
+/* ═══════════════════════════════════════════════════════════════
+   SAMPLE PROFILE — Hot & Dry Weather
+   ═══════════════════════════════════════════════════════════════ */
+
+function loadHotDryProfile() {
+  workspace.clear();
+
+  // Build the rule programmatically via Blockly's API
+  // Rule: IF temperature > 32 THEN pump ON + window 75°
+  const ifBlock = workspace.newBlock("controls_if");
+  ifBlock.initSvg();
+  ifBlock.render();
+
+  const compareBlock = workspace.newBlock("logic_compare");
+  compareBlock.setFieldValue("GT", "OP");
+  compareBlock.initSvg();
+  compareBlock.render();
+
+  const tempBlock = workspace.newBlock("get_temperature");
+  tempBlock.initSvg();
+  tempBlock.render();
+
+  const numBlock = workspace.newBlock("math_number");
+  numBlock.setFieldValue("32", "NUM");
+  numBlock.initSvg();
+  numBlock.render();
+
+  const pumpBlock = workspace.newBlock("set_pump");
+  pumpBlock.setFieldValue("HIGH", "PUMP_STATE");
+  pumpBlock.initSvg();
+  pumpBlock.render();
+
+  const windowBlock = workspace.newBlock("set_window");
+  windowBlock.setFieldValue("75", "WINDOW_ANGLE");
+  windowBlock.initSvg();
+  windowBlock.render();
+
+  // Wire up connections
+  compareBlock.getInput("A").connection.connect(tempBlock.outputConnection);
+  compareBlock.getInput("B").connection.connect(numBlock.outputConnection);
+  ifBlock.getInput("IF0").connection.connect(compareBlock.outputConnection);
+  ifBlock.getInput("DO0").connection.connect(pumpBlock.previousConnection);
+  pumpBlock.nextConnection.connect(windowBlock.previousConnection);
+
+  ifBlock.moveBy(60, 60);
+
+  // Simulate hot dry sensor readings
+  greenhouseState.temperature  = 38;
+  greenhouseState.humidity     = 38;
+  greenhouseState.soilMoisture = 14;
 
   updateDashboard();
-  evaluateRules();
+  pushChartData(38, 38, 14);
+
+  toast("Hot & Dry profile loaded. Press Deploy to activate. 🌵", "warn");
 }
 
-/* EXPORT JSON */
-function exportRules() {
-  const blob = new Blob([JSON.stringify(deployedRules, null, 2)], {
-    type: "application/json"
-  });
+/* ═══════════════════════════════════════════════════════════════
+   EXPORT
+   ═══════════════════════════════════════════════════════════════ */
 
+function exportRules() {
+  if (deployedRules.length === 0) {
+    toast("No deployed rules to export. Deploy first.", "warn");
+    return;
+  }
+
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    rules: deployedRules
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
+  link.href     = URL.createObjectURL(blob);
   link.download = "greenhouse-rules.json";
   link.click();
+
+  toast("Rules exported as JSON ⬇", "success");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LOG
+   ═══════════════════════════════════════════════════════════════ */
+
+const LOG_MAX_LINES = 100;
+
+function appendLog(text) {
+  const el = document.getElementById("runtimePreview");
+  const lines = el.textContent.split("\n");
+
+  if (lines.length > LOG_MAX_LINES) {
+    lines.splice(0, lines.length - LOG_MAX_LINES);
+    el.textContent = lines.join("\n");
+  }
+
+  el.textContent += (el.textContent ? "\n" : "") + text;
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONNECTION STATUS
+   ═══════════════════════════════════════════════════════════════ */
+
+function setConnectionStatus(state) {
+  const dot  = document.getElementById("statusDot");
+  const label = document.getElementById("connectionStatus");
+
+  dot.className = "status-dot";
+
+  if (state === "connected") {
+    dot.classList.add("connected");
+    label.textContent = "Connected ✅";
+  } else if (state === "demo") {
+    dot.classList.add("demo");
+    label.textContent = "Demo Mode 🌼";
+  } else {
+    dot.classList.add("error");
+    label.textContent = "Disconnected ❌";
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST NOTIFICATIONS
+   ═══════════════════════════════════════════════════════════════ */
+
+function Toast(message, type = "success") {
+  let container = document.querySelector(".toast-container");
+
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${type}`;
+  toast.textContent = message;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.animation = "fadeOut 0.35s ease forwards";
+
+    setTimeout(() => {
+      toast.remove();
+    }, 350);
+  }, 2500);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
